@@ -16,62 +16,22 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 import org.apache.commons.codec.binary.Hex;
 import javax.crypto.Cipher;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
-import java.util.Map;
+import java.security.spec.InvalidKeySpecException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.crypto.BadPaddingException;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
+import org.apache.commons.codec.DecoderException;
 
-public class ProjetoaesEntraDados {
+public class GCMEncriptor {
     private final static int GCM_IV_LENGTH = 12;
     private final static int GCM_TAG_LENGTH = 16;
     
-    public static void fixKeyLength() {
-        String errorString = "Failed manually overriding key-length permissions.";
-        int newMaxKeyLength;
-        try {
-            if ((newMaxKeyLength = Cipher.getMaxAllowedKeyLength("AES")) < 256) {
-                Class c = Class.forName("javax.crypto.CryptoAllPermissionCollection");
-                Constructor con = c.getDeclaredConstructor();
-                con.setAccessible(true);
-                Object allPermissionCollection = con.newInstance();
-                Field f = c.getDeclaredField("all_allowed");
-                f.setAccessible(true);
-                f.setBoolean(allPermissionCollection, true);
-
-                c = Class.forName("javax.crypto.CryptoPermissions");
-                con = c.getDeclaredConstructor();
-                con.setAccessible(true);
-                Object allPermissions = con.newInstance();
-                f = c.getDeclaredField("perms");
-                f.setAccessible(true);
-                ((Map) f.get(allPermissions)).put("*", allPermissionCollection);
-
-                c = Class.forName("javax.crypto.JceSecurityManager");
-                f = c.getDeclaredField("defaultPolicy");
-                f.setAccessible(true);
-                Field mf = Field.class.getDeclaredField("modifiers");
-                mf.setAccessible(true);
-                mf.setInt(f, f.getModifiers() & ~Modifier.FINAL);
-                f.set(null, allPermissions);
-
-                newMaxKeyLength = Cipher.getMaxAllowedKeyLength("AES");
-            }
-        } catch (Exception e) {
-            throw new RuntimeException(errorString, e);
-        }
-        if (newMaxKeyLength < 256)
-            throw new RuntimeException(errorString); // hack failed
-    }
-    
     /**
-     * @param key
+     * @param password
      * @param salt
      * @param iterations
      * @return
@@ -84,16 +44,14 @@ public class ProjetoaesEntraDados {
             pbkdf2 = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA512");
             SecretKey sk = pbkdf2.generateSecret(spec);
             derivedPass = Hex.encodeHexString(sk.getEncoded());
-        } catch (Exception e) {
+        } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
             e.printStackTrace();
         }
         return derivedPass;
     }
     
-    /*Usado para gerar o salt  */
     private static String getSalt() throws NoSuchAlgorithmException {
         SecureRandom sr = SecureRandom.getInstance("SHA1PRNG");
-        //SecureRandom sr = new SecureRandom();
         byte[] salt = new byte[16];
         sr.nextBytes(salt);
         return Hex.encodeHexString(salt);
@@ -117,6 +75,20 @@ public class ProjetoaesEntraDados {
         
         return ciphertext;
     }
+    
+    private static byte[] readIvFromFile() throws DecoderException, IOException {
+        String ivString = readFile("iv.txt").replace("\n", "").replace("\r", "");
+        byte[] iv = Hex.decodeHex(ivString.toCharArray());
+        
+        return iv;
+    }
+    
+    private static byte[] readMessageFromFile(String filename) throws IOException, DecoderException {
+        String encryptedMsgString = readFile(filename).replace("\n", "").replace("\r", "");
+        byte[] encryptedMsg = Hex.decodeHex(encryptedMsgString.toCharArray());
+        
+        return encryptedMsg;
+    }
 
     private static void encrypt(String message, SecretKey key, String filename) throws Exception {
         byte[] iv = createIvAndPersistIv();
@@ -127,11 +99,8 @@ public class ProjetoaesEntraDados {
     }
 
     private static String decrypt(SecretKey skey, String filename) throws Exception {
-        String encryptedMsgString = readFile(filename).replace("\n", "").replace("\r", "");
-        byte[] encryptedMsg = Hex.decodeHex(encryptedMsgString.toCharArray());
-        
-        String ivString = readFile("iv.txt").replace("\n", "").replace("\r", "");
-        byte[] iv = Hex.decodeHex(ivString.toCharArray());
+        byte[] encryptedMsg = readMessageFromFile(filename);
+        byte[] iv = readIvFromFile();
         
         byte[] ivAndEncrypted = new byte[iv.length + encryptedMsg.length];
         System.arraycopy(iv, 0, ivAndEncrypted, 0, iv.length);
@@ -166,7 +135,7 @@ public class ProjetoaesEntraDados {
             }
             return stringBuilder.toString();
         } catch (IOException ex) {
-            Logger.getLogger(ProjetoaesEntraDados.class.getName()).log(Level.SEVERE, null, ex);
+            Logger.getLogger(GCMEncriptor.class.getName()).log(Level.SEVERE, null, ex);
         } finally {
                 reader.close();
         }
@@ -180,7 +149,7 @@ public class ProjetoaesEntraDados {
             try {
                 file.createNewFile();
             } catch (IOException ex) {
-                Logger.getLogger(ProjetoaesEntraDados.class.getName()).log(Level.SEVERE, null, ex);
+                Logger.getLogger(GCMEncriptor.class.getName()).log(Level.SEVERE, null, ex);
             }
         }
 
@@ -213,7 +182,8 @@ public class ProjetoaesEntraDados {
 
     public static void main(String[] args) throws Exception {
         // Dando overwrite no default do Java de suportar até 128-bit encryption
-        fixKeyLength();
+        FixJavaKeyLength javaLength = new FixJavaKeyLength();
+        javaLength.fixKeyLength();
         
         // Pegando mensagem do usuário e nome do arquivo
         String mensagem;
