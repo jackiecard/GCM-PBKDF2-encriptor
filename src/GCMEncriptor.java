@@ -186,9 +186,9 @@ public class GCMEncriptor {
         Scanner input = new Scanner(System.in);
         
         System.out.println("Would you like to encript (1) or decript (2)?");
-        Integer modo = Integer.parseInt(input.nextLine());
+        Integer mode = Integer.parseInt(input.nextLine());
         
-        if (modo.equals(1)){
+        if (mode.equals(1)){
             System.out.println("Please, write down the message you would like to encript: ");
             message = input.nextLine();
             filename = "data.txt";
@@ -200,7 +200,7 @@ public class GCMEncriptor {
             encrypt(message, originalKey, filename);
             System.out.println("Message encripted successfully!");
 
-        } else if (modo.equals(2)){
+        } else if (mode.equals(2)){
             String chaveString = readFile("chave.txt").replace("\n", "").replace("\r", "");
             byte[] chaveBytes = Hex.decodeHex(chaveString.toCharArray());
             SecretKey decryptKey = getSecretKey(chaveBytes);
