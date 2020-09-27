@@ -30,12 +30,6 @@ public class GCMEncriptor {
     private final static int GCM_IV_LENGTH = 12;
     private final static int GCM_TAG_LENGTH = 16;
     
-    /**
-     * @param password
-     * @param salt
-     * @param iterations
-     * @return
-     */
     public static String generateDerivedKey(String password, String salt, Integer iterations) {
         PBEKeySpec spec = new PBEKeySpec(password.toCharArray(), salt.getBytes(), iterations, 128);
         SecretKeyFactory pbkdf2 = null;
@@ -66,12 +60,17 @@ public class GCMEncriptor {
         return iv;
     }
     
-    private static byte[] createCipherInstance(String privateString, SecretKey skey, byte[] iv) throws InvalidKeyException, InvalidAlgorithmParameterException, NoSuchAlgorithmException, NoSuchPaddingException, UnsupportedEncodingException, IllegalBlockSizeException, BadPaddingException {
+    
+    private static Cipher createCipherInstance(int mode, SecretKey skey, byte[] iv) throws InvalidKeyException, InvalidAlgorithmParameterException, NoSuchAlgorithmException, NoSuchPaddingException, UnsupportedEncodingException, IllegalBlockSizeException, BadPaddingException {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         GCMParameterSpec ivSpec = new GCMParameterSpec(GCM_TAG_LENGTH * Byte.SIZE, iv);
-        cipher.init(Cipher.ENCRYPT_MODE, skey, ivSpec);
+        cipher.init(mode, skey, ivSpec);
         
-        byte[] ciphertext = cipher.doFinal(privateString.getBytes("UTF8"));
+        return cipher;
+    }
+    
+    private static byte[] initCipher(Cipher cipher, String message) throws UnsupportedEncodingException, BadPaddingException, IllegalBlockSizeException {
+        byte[] ciphertext = cipher.doFinal(message.getBytes("UTF8"));
         
         return ciphertext;
     }
@@ -93,30 +92,27 @@ public class GCMEncriptor {
     private static void encrypt(String message, SecretKey key, String filename) throws Exception {
         byte[] iv = createIvAndPersistIv();
 
-        byte[] ciphertext = createCipherInstance(message, key, iv);
+        Cipher cipher = createCipherInstance(Cipher.ENCRYPT_MODE, key, iv);
+        byte[] ciphertext = initCipher(cipher, message);
         
         writeFile(Hex.encodeHexString(ciphertext), filename);
     }
 
-    private static String decrypt(SecretKey skey, String filename) throws Exception {
+    private static void decrypt(SecretKey key, String filename) throws Exception {
         byte[] encryptedMsg = readMessageFromFile(filename);
         byte[] iv = readIvFromFile();
         
         byte[] ivAndEncrypted = new byte[iv.length + encryptedMsg.length];
         System.arraycopy(iv, 0, ivAndEncrypted, 0, iv.length);
         System.arraycopy(encryptedMsg, 0, ivAndEncrypted, iv.length, encryptedMsg.length);
-
-        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-        GCMParameterSpec ivSpec = new GCMParameterSpec(GCM_TAG_LENGTH * Byte.SIZE, iv);
-        cipher.init(Cipher.DECRYPT_MODE, skey, ivSpec);
+        
+        Cipher cipher = createCipherInstance(Cipher.DECRYPT_MODE, key, iv);
 
         byte[] ciphertext = cipher.doFinal(ivAndEncrypted, GCM_IV_LENGTH, ivAndEncrypted.length - GCM_IV_LENGTH);
 
         String result = new String(ciphertext, "UTF8");
         
         writeFile(result, filename);
-
-        return result;
     }
     
     private static String readFile (String filename) throws IOException {
@@ -181,44 +177,38 @@ public class GCMEncriptor {
     }
 
     public static void main(String[] args) throws Exception {
-        // Dando overwrite no default do Java de suportar até 128-bit encryption
-        FixJavaKeyLength javaLength = new FixJavaKeyLength();
-        javaLength.fixKeyLength();
+        // Overwriting Java defaults to support more than 128-bit encryption
+        FixJavaKeyLength.fixKeyLength();
         
-        // Pegando mensagem do usuário e nome do arquivo
-        String mensagem;
-        String nomeDoArquivo;
+        String message;
+        String filename;
         
         Scanner input = new Scanner(System.in);
         
-        System.out.println("Cifrar (1) ou decifrar (2)?");
+        System.out.println("Would you like to encript (1) or decript (2)?");
         Integer modo = Integer.parseInt(input.nextLine());
         
         if (modo.equals(1)){
-            System.out.println("Digite a mensagem a ser cifrada: ");
-            mensagem = input.nextLine();
-            nomeDoArquivo = "data.txt";
+            System.out.println("Please, write down the message you would like to encript: ");
+            message = input.nextLine();
+            filename = "data.txt";
         
-            // criando chave derivada and convertendo pra secret key e persistindo ela no chave.txt
-            byte[] decodedKey = getDecodedKey(mensagem);
+            byte[] decodedKey = getDecodedKey(message);
             SecretKey originalKey = getSecretKey(decodedKey); 
             persistKey(decodedKey);
         
-            // Encriptando
-            encrypt(mensagem, originalKey, nomeDoArquivo);
-            System.out.println("Mensagem cifrada.");
+            encrypt(message, originalKey, filename);
+            System.out.println("Message encripted successfully!");
 
         } else if (modo.equals(2)){
-            // Decriptando
             String chaveString = readFile("chave.txt").replace("\n", "").replace("\r", "");
             byte[] chaveBytes = Hex.decodeHex(chaveString.toCharArray());
             SecretKey decryptKey = getSecretKey(chaveBytes);
 
-            String decifrada = decrypt(decryptKey, "data.txt");
-            System.out.println("Mensagem decifrada: ");
-            System.out.println(decifrada);
+            decrypt(decryptKey, "data.txt");
+            System.out.println("Decripted message available at data.txt");
         } else {
-            System.out.println("unknown mode");
+            System.out.println("Unknown Mode");
         }
     }
 }
